@@ -110,18 +110,22 @@ def resample(in_file: str, out_file: str, sample_rate: float):
             next_out_stamp = prev_out_stamp + sample_interval
 
             # Collect all events and labels in the sample interval:
+            num_events_in_interval = 0
             interval_sensor_values = {sensor: [] for sensor in sensor_fields.keys()}
-            interval_labels = {label_name: None for label_name in label_fields}
+            interval_labels = {label_name: [] for label_name in label_fields}
 
             while next_input_event is not None and next_input_event[stamp_field] <= next_out_stamp:
+                num_events_in_interval += 1
+
                 for sensor in sensor_fields.keys():
                     if next_input_event[sensor] is not None:
                         interval_sensor_values[sensor].append(next_input_event[sensor])
 
                 for label_name in label_fields:
-                    interval_labels[label_name] = next_input_event[label_name]
+                    if next_input_event[label_name] is not None:
+                        interval_labels[label_name].append(next_input_event[label_name])
 
-            print(next_out_stamp)
+                next_input_event = next(in_data.rows_dict, None)
 
 
 def get_sensor_only_fields(all_fields: Dict[str, str]) -> Dict[str, str]:
