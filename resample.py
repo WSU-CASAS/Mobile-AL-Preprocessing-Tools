@@ -5,9 +5,12 @@ timestamps spaced 1/sample_rate seconds from the starting second of the first in
 """
 import os
 from argparse import ArgumentParser
+from warnings import warn
+
+from mobiledata import MobileData
 
 
-def resample(in_file: str, out_file: str, new_rate: float):
+def resample(in_file: str, out_file: str, sample_rate: float):
     """
     Resample the given input file to the specified rate and write to the output file. The output
     data will be at uniform timestamps at the given rate starting from the second when the first
@@ -60,11 +63,31 @@ def resample(in_file: str, out_file: str, new_rate: float):
         Path to the input file to read data from
     out_file : str
         Path to the output file to write resampled data to
-    new_rate : float
+    sample_rate : float
         The new rate to resample to (in Hz)
     """
 
-    pass
+    # Determine the output sample interval in seconds:
+    sample_interval = 1.0 / sample_rate
+
+    with MobileData(in_file, 'r') as in_data, MobileData(out_file, 'w') as out_data:
+        # Get the fields from the input file and set them/write headers in output:
+        fields = in_data.fields
+
+        out_data.set_fields(fields)
+        out_data.write_headers()
+
+        # Read the first event from the input file:
+        next_input_event = next(in_data.rows_dict, None)
+
+        # Warn and exit if we have no input data to read:
+        if next_input_event is None:
+            msg = f"The input file {in_file} did not have any data rows"
+            warn(msg)
+
+            return
+
+
 
 
 if __name__ == '__main__':
@@ -93,4 +116,6 @@ if __name__ == '__main__':
 
         output_file = f'{filename}{new_extension}'
 
-    print(output_file)
+    print(f"Resampling data in {args.input_file} to {output_file} at {args.resample_rate}Hz")
+
+    resample(args.input_file, output_file, args.resample_rate)
