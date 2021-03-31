@@ -5,9 +5,17 @@ timestamps spaced 1/sample_rate seconds from the starting second of the first in
 """
 import os
 from argparse import ArgumentParser
+from datetime import timedelta, datetime
+from typing import Dict, Optional, Union
 from warnings import warn
 
 from mobiledata import MobileData
+
+
+# Configuration to exclude non-sensor fields from sampling (only last label in each interval is
+# output for resampled data):
+stamp_field = 'stamp'  # name of the timestamp field in the CSV data
+label_fields = ['user_activity_label']  # name(s) of non-sensor labels in the CSV data
 
 
 def resample(in_file: str, out_file: str, sample_rate: float):
@@ -41,7 +49,8 @@ def resample(in_file: str, out_file: str, sample_rate: float):
       `next_out_stamp`, tracking each sensor's values in separate lists.
 
       iii. If one or more input events was found in the interval, write an event to the output file
-      at `next_out_stamp` with the means of the collected values for each sensor. If any of the
+      at `next_out_stamp` with the means of the collected values for each sensor. If any sensors are
+      string (non-float) values, only use the last value of that sensor in the output. If any of the
       interval events had a label, use the newest of the labels to label the output event.
 
       iv. If there were no input events in the interval, write the values of the previous input
@@ -68,7 +77,7 @@ def resample(in_file: str, out_file: str, sample_rate: float):
     """
 
     # Determine the output sample interval in seconds:
-    sample_interval = 1.0 / sample_rate
+    sample_interval = timedelta(seconds=1.0 / sample_rate)
 
     with MobileData(in_file, 'r') as in_data, MobileData(out_file, 'w') as out_data:
         # Get the fields from the input file and set them/write headers in output:
@@ -76,6 +85,9 @@ def resample(in_file: str, out_file: str, sample_rate: float):
 
         out_data.set_fields(fields)
         out_data.write_headers()
+
+        # Set up the sensor fields by removing non-sensor fields:
+        sensor_fields = get_sensor_only_fields(fields)
 
         # Read the first event from the input file:
         next_input_event = next(in_data.rows_dict, None)
@@ -87,7 +99,42 @@ def resample(in_file: str, out_file: str, sample_rate: float):
 
             return
 
+        # Determine the starting output stamp (not actually written to output, but used as base):
+        prev_out_stamp = next_input_event[stamp_field].replace(microsecond=0)  # truncate to seconds
 
+        # Store the last input event (if any):
+        last_seen_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
+
+        # Now iterate through the output intervals:
+        while True:
+            next_out_stamp = prev_out_stamp + sample_interval
+
+            # Collect all events and labels in the sample interval:
+            interval_sensor_values = {sensor: [] for sensor in sensor_fields.keys()}
+            interval_labels = {label_name: None for label_name in label_fields}
+
+            while next_input_event is not None and next_input_event[stamp_field] <= next_out_stamp:
+                for sensor in sensor_fields.keys():
+                    if next_input_event[sensor] is not None:
+                        interval_sensor_values[sensor].append(next_input_event[sensor])
+
+                for label_name in label_fields:
+                    interval_labels[label_name] = next_input_event[label_name]
+
+            print(next_out_stamp)
+
+
+def get_sensor_only_fields(all_fields: Dict[str, str]) -> Dict[str, str]:
+    """Remove all but sensor fields from a fields dictionary."""
+
+    sensor_fields = dict(all_fields)
+
+    del sensor_fields[stamp_field]
+
+    for label_field in label_fields:
+        del sensor_fields[label_field]
+
+    return sensor_fields
 
 
 if __name__ == '__main__':
