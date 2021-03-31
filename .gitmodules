@@ -1,0 +1,3 @@
+[submodule "mobiledata"]
+	path = mobiledata
+	url = https://github.com/WSU-CASAS/Mobile-AL-Data.git
