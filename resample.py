@@ -65,12 +65,17 @@ class Resampler:
 
       vi. Set `out_stamp = next_out_stamp`.
 
+    4. If the input events jump back in time before the start of an interval, or they jump more than
+    a specified time threshold after an interval, then restart the sample tracking at the new event
+    time.
+
     In this way, the code should handle: upsampling, where we want to repeat each event to fill the
     needed time intervals; and downsampling, where we take the mean of events in each interval and
     output them.
     """
 
-    def __init__(self, in_file: str, out_file: str, sample_rate: float):
+    def __init__(self, in_file: str, out_file: str, sample_rate: float,
+                 max_time_gap: timedelta):
         """
         Set up the resampler, but don't actually process anything yet.
 
@@ -82,6 +87,8 @@ class Resampler:
             Path to the output file to write resampled data to
         sample_rate : float
             The new rate to resample to (in Hz)
+        max_time_gap : timedelta
+            If the time between input events is greater than this gap, restart sampling after
         """
 
         self.in_file = in_file
@@ -107,6 +114,9 @@ class Resampler:
         # Determine the output sample interval in seconds:
         self.sample_interval = timedelta(seconds=1.0 / sample_rate)
 
+        # Maximum gap between input events - longer than this and we will restart resampling:
+        self.max_time_gap = max_time_gap
+
         # The previous and next output stamps to use:
         self.prev_out_stamp = None  # type: Optional[datetime]
         self.next_out_stamp = None  # type: Optional[datetime]
@@ -116,7 +126,6 @@ class Resampler:
 
         # The last-seen input event:
         self.last_seen_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
-        # TODO: Make sure this is cleared if we 'jump' in time and reset
 
         # Information about input events seen in a sample interval:
         self.num_events_in_interval = 0
@@ -159,9 +168,8 @@ class Resampler:
 
             self.first_event_stamp = self.next_input_event[self.stamp_field]
 
-            # Determine the starting output stamp to use as a base by truncating the first input
-            # stamp to seconds:
-            self.prev_out_stamp = self.next_input_event[stamp_field].replace(microsecond=0)
+            # Set up the sample tracking (here mostly to set the start of the first interval):
+            self.reset_sample_tracking()
 
             # Now iterate through the output intervals:
             while True:
@@ -198,8 +206,10 @@ class Resampler:
         # Collect all events and labels in the sample interval:
         self.reset_for_interval()
 
+        # Process input events until we run out (EOF) or the next event is before or after our
+        # current interval. (This will handle if the events go back in time before this interval.)
         while self.next_input_event is not None \
-                and self.next_input_event[stamp_field] <= self.next_out_stamp:
+                and self.prev_out_stamp <= self.next_input_event[self.stamp_field] <= self.next_out_stamp:
             self.num_events_in_interval += 1
 
             for sensor in self.sensor_fields.keys():
@@ -215,6 +225,7 @@ class Resampler:
             self.num_input_events_processed += 1
             self.num_events_since_last_status += 1
 
+            # Load the next input event:
             self.get_next_input_event()
 
         # Now write out the event (if possible):
@@ -226,11 +237,25 @@ class Resampler:
             self.print_status(self.next_out_stamp, force_status=True)
             raise EOFError()
 
-        # Prepare for the next interval:
-        self.prev_out_stamp = self.next_out_stamp
+        # Check if the next input event is before the start of the past interval (jumped back in
+        # time) or if the jump from the end of the interval to the next event is too large of a gap
+        # Also check that we have seen an event since the reset (handles next event being toward
+        # end of second when restarting sampling).
+        next_event_stamp = self.next_input_event[self.stamp_field]
+        if (next_event_stamp <= self.prev_out_stamp
+                or (next_event_stamp - self.next_out_stamp) > self.max_time_gap) \
+                and self.last_seen_input_event is not None:
+            # If so, print info about the jump, reset sample tracking, and move to the next interval
+            Resampler.print_time_jump_info(self.prev_out_stamp, self.next_out_stamp,
+                                           next_event_stamp)
 
-        # Print status if needed:
-        self.print_status(self.prev_out_stamp)
+            self.reset_sample_tracking()
+        else:  # No jump, so continue as normal:
+            # Prepare for the next interval:
+            self.prev_out_stamp = self.next_out_stamp
+
+            # Print status if needed:
+            self.print_status(self.prev_out_stamp)
 
     def reset_for_interval(self):
         """Reset variables tracking events seen in an interval."""
@@ -318,6 +343,19 @@ class Resampler:
 
         self.out_data.write_row_dict(event_dict)
 
+    def reset_sample_tracking(self):
+        """
+        Reset tracking events for resampling after a gap is encountered. Uses the currently set
+        self.next_input_event to determine the timestamps for the next sample interval.
+        """
+
+        # Make the start of the next interval be the start of the second of the next event:
+        self.prev_out_stamp = self.next_input_event[stamp_field].replace(microsecond=0)
+        self.next_out_stamp = None
+
+        # Clear any last-seen input event:
+        self.last_seen_input_event = None
+
     def print_status(self, current_interval_end: datetime, force_status: bool=False):
         """Print a status message if we've processed a certain number of events."""
 
@@ -335,6 +373,18 @@ class Resampler:
 
             self.num_events_since_last_status = 0
 
+    @staticmethod
+    def print_time_jump_info(interval_start: datetime, interval_end: datetime,
+                             next_event_stamp: datetime):
+        print("\nInput events jumped to {next_event} while in interval {int_start} to {int_end}"
+              .format(
+                next_event=next_event_stamp.strftime('%Y-%m-%d %H:%M:%S'),
+                int_start=interval_start.strftime('%Y-%m-%d %H:%M:%S'),
+                int_end=interval_end.strftime('%Y-%m-%d %H:%M:%S')
+              )
+        )
+        print("Resetting sample tracking to start at that new event")
+
 
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to resample CSV Mobile AL data to specified rate.")
@@ -351,6 +401,9 @@ if __name__ == '__main__':
 
     parser.add_argument('resample_rate', type=float, help="Rate to resample data to (Hz)")
 
+    parser.add_argument('-tg', '--max-time-gap', type=float, default=10.0,
+                        help="Max gap (s) between interval and next event before sampling restarts (default %(default)s s)")
+
     args = parser.parse_args()
 
     # If the output file name is not set, use the input adding 'sampled' before the extension:
@@ -362,8 +415,10 @@ if __name__ == '__main__':
 
         output_file = f'{filename}{new_extension}'
 
+    max_gap = timedelta(seconds=args.max_time_gap)
+
     print(f"Resampling data in {args.input_file} to {output_file} at {args.resample_rate}Hz")
 
     # Set up the resampler and then run it:
-    resampler = Resampler(args.input_file, output_file, args.resample_rate)
+    resampler = Resampler(args.input_file, output_file, args.resample_rate, max_gap)
     resampler.run_resample()
