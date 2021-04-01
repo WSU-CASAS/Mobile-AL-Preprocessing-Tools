@@ -6,7 +6,8 @@ timestamps spaced 1/sample_rate seconds from the starting second of the first in
 import os
 from argparse import ArgumentParser
 from datetime import timedelta, datetime
-from typing import Dict, Optional, Union
+from statistics import mean
+from typing import Dict, Optional, Union, List
 from warnings import warn
 
 from mobiledata import MobileData
@@ -114,6 +115,11 @@ class Resampler:
         # The last-seen input event:
         self.last_seen_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
 
+        # Information about input events seen in a sample interval:
+        self.num_events_in_interval = 0
+        self.interval_sensor_values = None  # type: Optional[Dict[str, List[float, str]]]
+        self.interval_labels = None  # type: Optional[Dict[str, List[str]]]
+
     def run_resample(self):
         """
         Actually run the resampling.
@@ -170,26 +176,113 @@ class Resampler:
 
     def process_next_interval(self):
         """Process the next output interval and any events that should go into it."""
+
+        # Set up the stamp at the end of the next interval:
         self.next_out_stamp = self.prev_out_stamp + self.sample_interval
 
         # Collect all events and labels in the sample interval:
-        num_events_in_interval = 0
-        interval_sensor_values = {sensor: [] for sensor in self.sensor_fields.keys()}
-        interval_labels = {label_name: [] for label_name in label_fields}
+        self.reset_for_interval()
 
         while self.next_input_event is not None \
                 and self.next_input_event[stamp_field] <= self.next_out_stamp:
-            num_events_in_interval += 1
+            self.num_events_in_interval += 1
 
             for sensor in self.sensor_fields.keys():
                 if self.next_input_event[sensor] is not None:
-                    interval_sensor_values[sensor].append(self.next_input_event[sensor])
+                    self.interval_sensor_values[sensor].append(self.next_input_event[sensor])
 
             for label_name in label_fields:
                 if self.next_input_event[label_name] is not None:
-                    interval_labels[label_name].append(self.next_input_event[label_name])
+                    self.interval_labels[label_name].append(self.next_input_event[label_name])
 
             self.get_next_input_event()
+
+        # TODO: Add check/break out of loop here
+
+        # Now write out the event (if possible):
+        self.write_event_for_interval()
+
+        # Prepare for the next interval:
+        self.prev_out_stamp = self.next_out_stamp
+
+    def reset_for_interval(self):
+        """Reset variables tracking events seen in an interval."""
+
+        self.num_events_in_interval = 0
+        self.interval_sensor_values = {sensor: [] for sensor in self.sensor_fields.keys()}
+        self.interval_labels = {label_name: [] for label_name in label_fields}
+
+    def write_event_for_interval(self):
+        """
+        Writes an event (if any) that should be output at the end of the current interval, based on
+        the events seen within that interval.
+        """
+
+        if self.num_events_in_interval > 0:
+            # We have some events, so compute the sensor values and labels from the window:
+            sensor_vals_to_write = self.get_sensor_values_for_out_event()
+            label_vals_to_write = self.get_label_vals_for_out_event()
+
+            self.write_out_event(self.next_out_stamp, sensor_vals_to_write, label_vals_to_write)
+        else:
+            # We didn't have any events, so use the last one we saw, if any:
+            print(self.next_out_stamp)
+            raise NotImplementedError()  # TODO: Actually implement this check and check for no events seen at all yet :)
+
+    def get_sensor_values_for_out_event(self) -> Dict[str, Union[float, str, None]]:
+        """
+        Compute the sensor values to write at end of an interval based on the input values seen in
+        the interval and return them.
+        """
+
+        sensor_vals = {}
+
+        for sensor, val_type in self.sensor_fields.items():
+            vals_from_interval = self.interval_sensor_values[sensor]
+
+            if len(vals_from_interval) < 1:  # this sensor was not seen in the interval
+                sensor_vals[sensor] = None
+            elif val_type == 'f':  # float values, so grab mean
+                sensor_vals[sensor] = mean(vals_from_interval)
+            else:  # str values, so grab last one
+                sensor_vals[sensor] = vals_from_interval[-1]
+
+        return sensor_vals
+
+    def get_label_vals_for_out_event(self) -> Dict[str, Optional[str]]:
+        """
+        Compute the labels from those seen in an interval, using the last one of each type seen (if
+        any) for that label.
+        """
+
+        label_vals = {}
+
+        for label_name in self.label_fields:
+            vals_from_interval = self.interval_labels[label_name]
+
+            if len(vals_from_interval) < 1:  # this label was not seen in the interval
+                label_vals[label_name] = None
+            else:  # use the last instance of this label seen in the interval
+                label_vals[label_name] = vals_from_interval[-1]
+
+        return label_vals
+
+    def write_out_event(
+            self,
+            stamp: datetime,
+            sensor_vals: Dict[str, Union[float, str, None]],
+            label_vals: Dict[str, Optional[str]]
+    ):
+        """Write out the given values to the output file."""
+
+        # Form the dictionary to write:
+        event_dict = {
+            self.stamp_field: stamp,
+            **sensor_vals,
+            **label_vals
+        }
+
+        self.out_data.write_row_dict(event_dict)
 
 
 if __name__ == '__main__':
