@@ -27,9 +27,6 @@ class Resampler:
     data will be at uniform timestamps at the given rate starting from the second when the first
     event of the input file occurs.
 
-    TODO: Add checks for going back in time or skipping too far ahead in the input data, at which
-    point we will need to restart our sampling.
-
     Notes
     _____
     This function is able to handle both up- and down-sampling of the input data. The general
