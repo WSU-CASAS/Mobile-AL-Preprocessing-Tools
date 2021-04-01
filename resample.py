@@ -18,7 +18,7 @@ stamp_field = 'stamp'  # name of the timestamp field in the CSV data
 label_fields = ['user_activity_label']  # name(s) of non-sensor labels in the CSV data
 
 
-def resample(in_file: str, out_file: str, sample_rate: float):
+class Resampler:
     """
     Resample the given input file to the specified rate and write to the output file. The output
     data will be at uniform timestamps at the given rate starting from the second when the first
@@ -65,80 +65,131 @@ def resample(in_file: str, out_file: str, sample_rate: float):
     In this way, the code should handle: upsampling, where we want to repeat each event to fill the
     needed time intervals; and downsampling, where we take the mean of events in each interval and
     output them.
-
-    Parameters
-    ----------
-    in_file : str
-        Path to the input file to read data from
-    out_file : str
-        Path to the output file to write resampled data to
-    sample_rate : float
-        The new rate to resample to (in Hz)
     """
 
-    # Determine the output sample interval in seconds:
-    sample_interval = timedelta(seconds=1.0 / sample_rate)
+    def __init__(self, in_file: str, out_file: str, sample_rate: float):
+        """
+        Set up the resampler, but don't actually process anything yet.
 
-    with MobileData(in_file, 'r') as in_data, MobileData(out_file, 'w') as out_data:
-        # Get the fields from the input file and set them/write headers in output:
-        fields = in_data.fields
+        Parameters
+        ----------
+        in_file : str
+            Path to the input file to read data from
+        out_file : str
+            Path to the output file to write resampled data to
+        sample_rate : float
+            The new rate to resample to (in Hz)
+        """
 
-        out_data.set_fields(fields)
-        out_data.write_headers()
+        self.in_file = in_file
+        self.out_file = out_file
 
-        # Set up the sensor fields by removing non-sensor fields:
-        sensor_fields = get_sensor_only_fields(fields)
+        # Set up the input/output file objects:
+        self.in_data = MobileData(in_file, 'r')
+        self.out_data = MobileData(out_file, 'w')
 
-        # Read the first event from the input file:
-        next_input_event = next(in_data.rows_dict, None)
+        # Hold information about the different fields to use:
+        # All fields in the input file:
+        self.all_fields = None  # type: Optional[Dict[str, str]]
 
-        # Warn and exit if we have no input data to read:
-        if next_input_event is None:
-            msg = f"The input file {in_file} did not have any data rows"
-            warn(msg)
+        # Stamp field name:
+        self.stamp_field = stamp_field
 
-            return
+        # Only sensor fields:
+        self.sensor_fields = None  # type: Optional[Dict[str, str]]
 
-        # Determine the starting output stamp (not actually written to output, but used as base):
-        prev_out_stamp = next_input_event[stamp_field].replace(microsecond=0)  # truncate to seconds
+        # List of label fields:
+        self.label_fields = label_fields
 
-        # Store the last input event (if any):
-        last_seen_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
+        # Determine the output sample interval in seconds:
+        self.sample_interval = timedelta(seconds=1.0 / sample_rate)
 
-        # Now iterate through the output intervals:
-        while True:
-            next_out_stamp = prev_out_stamp + sample_interval
+        # The previous and next output stamps to use:
+        self.prev_out_stamp = None  # type: Optional[datetime]
+        self.next_out_stamp = None  # type: Optional[datetime]
 
-            # Collect all events and labels in the sample interval:
-            num_events_in_interval = 0
-            interval_sensor_values = {sensor: [] for sensor in sensor_fields.keys()}
-            interval_labels = {label_name: [] for label_name in label_fields}
+        # The next event from the input file:
+        self.next_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
 
-            while next_input_event is not None and next_input_event[stamp_field] <= next_out_stamp:
-                num_events_in_interval += 1
+        # The last-seen input event:
+        self.last_seen_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
 
-                for sensor in sensor_fields.keys():
-                    if next_input_event[sensor] is not None:
-                        interval_sensor_values[sensor].append(next_input_event[sensor])
+    def run_resample(self):
+        """
+        Actually run the resampling.
+        """
 
-                for label_name in label_fields:
-                    if next_input_event[label_name] is not None:
-                        interval_labels[label_name].append(next_input_event[label_name])
+        self.in_data.open()
+        self.out_data.open()
 
-                next_input_event = next(in_data.rows_dict, None)
+        try:
+            # Get the fields from the input file and set them/write headers in output:
+            self.all_fields = self.in_data.fields
 
+            self.out_data.set_fields(self.all_fields)
+            self.out_data.write_headers()
 
-def get_sensor_only_fields(all_fields: Dict[str, str]) -> Dict[str, str]:
-    """Remove all but sensor fields from a fields dictionary."""
+            # Set up the sensor fields by removing non-sensor fields:
+            self.set_sensor_only_fields()
 
-    sensor_fields = dict(all_fields)
+            # Read the first event from the input file:
+            self.get_next_input_event()
 
-    del sensor_fields[stamp_field]
+            # Warn and exit if we have no input data to read:
+            if self.next_input_event is None:
+                msg = f"The input file {self.in_file} did not have any data rows"
+                warn(msg)
 
-    for label_field in label_fields:
-        del sensor_fields[label_field]
+                return
 
-    return sensor_fields
+            # Determine the starting output stamp to use as a base by truncating the first input
+            # stamp to seconds:
+            self.prev_out_stamp = self.next_input_event[stamp_field].replace(microsecond=0)
+
+            # Now iterate through the output intervals:
+            while True:
+                self.process_next_interval()
+        finally:
+            self.in_data.close()
+            self.out_data.close()
+
+    def set_sensor_only_fields(self):
+        """Remove all but sensor fields from the fields dictionary."""
+
+        self.sensor_fields = dict(self.all_fields)
+
+        del self.sensor_fields[stamp_field]
+
+        for label_field in label_fields:
+            del self.sensor_fields[label_field]
+
+    def get_next_input_event(self):
+        """Get next input event from the file."""
+
+        self.next_input_event = next(self.in_data.rows_dict, None)
+
+    def process_next_interval(self):
+        """Process the next output interval and any events that should go into it."""
+        self.next_out_stamp = self.prev_out_stamp + self.sample_interval
+
+        # Collect all events and labels in the sample interval:
+        num_events_in_interval = 0
+        interval_sensor_values = {sensor: [] for sensor in self.sensor_fields.keys()}
+        interval_labels = {label_name: [] for label_name in label_fields}
+
+        while self.next_input_event is not None \
+                and self.next_input_event[stamp_field] <= self.next_out_stamp:
+            num_events_in_interval += 1
+
+            for sensor in self.sensor_fields.keys():
+                if self.next_input_event[sensor] is not None:
+                    interval_sensor_values[sensor].append(self.next_input_event[sensor])
+
+            for label_name in label_fields:
+                if self.next_input_event[label_name] is not None:
+                    interval_labels[label_name].append(self.next_input_event[label_name])
+
+            self.get_next_input_event()
 
 
 if __name__ == '__main__':
@@ -169,4 +220,6 @@ if __name__ == '__main__':
 
     print(f"Resampling data in {args.input_file} to {output_file} at {args.resample_rate}Hz")
 
-    resample(args.input_file, output_file, args.resample_rate)
+    # Set up the resampler and then run it:
+    resampler = Resampler(args.input_file, output_file, args.resample_rate)
+    resampler.run_resample()
