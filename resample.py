@@ -222,6 +222,8 @@ class Resampler:
 
         # Check if we've reached the end of the file (no more input events):
         if self.next_input_event is None:
+            # Force printing status one last time:
+            self.print_status(self.next_out_stamp, force_status=True)
             raise EOFError()
 
         # Prepare for the next interval:
@@ -313,11 +315,11 @@ class Resampler:
 
         self.out_data.write_row_dict(event_dict)
 
-    def print_status(self, current_interval_end: datetime):
+    def print_status(self, current_interval_end: datetime, force_status: bool=False):
         """Print a status message if we've processed a certain number of events."""
 
         # Only update if we've reached the next threshold:
-        if self.num_events_since_last_status > self.status_num_events_interval:
+        if self.num_events_since_last_status > self.status_num_events_interval or force_status:
             first_stamp_str = self.first_event_stamp.strftime("%Y-%m-%d %H:%M:%S") \
                 if self.first_event_stamp is not None else "?"
             current_stamp_str = current_interval_end.strftime("%Y-%m-%d %H:%M:%S")
