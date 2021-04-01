@@ -156,6 +156,8 @@ class Resampler:
             # Now iterate through the output intervals:
             while True:
                 self.process_next_interval()
+        except EOFError:  # catch when we are at the end of the file
+            pass
         finally:
             self.in_data.close()
             self.out_data.close()
@@ -201,10 +203,12 @@ class Resampler:
 
             self.get_next_input_event()
 
-        # TODO: Add check/break out of loop here
-
         # Now write out the event (if possible):
         self.write_event_for_interval()
+
+        # Check if we've reached the end of the file (no more input events):
+        if self.next_input_event is None:
+            raise EOFError()
 
         # Prepare for the next interval:
         self.prev_out_stamp = self.next_out_stamp
