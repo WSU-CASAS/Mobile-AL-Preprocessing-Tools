@@ -18,6 +18,8 @@ from mobiledata import MobileData
 stamp_field = 'stamp'  # name of the timestamp field in the CSV data
 label_fields = ['user_activity_label']  # name(s) of non-sensor labels in the CSV data
 
+status_num_events_interval = 1000  # number of input events between status updates
+
 
 class Resampler:
     """
@@ -121,6 +123,12 @@ class Resampler:
         self.interval_sensor_values = None  # type: Optional[Dict[str, List[float, str]]]
         self.interval_labels = None  # type: Optional[Dict[str, List[str]]]
 
+        # Status update info:
+        self.status_num_events_interval = status_num_events_interval
+        self.num_input_events_processed = 0
+        self.num_events_since_last_status = 0
+        self.first_event_stamp = None  # type: Optional[datetime]
+
     def run_resample(self):
         """
         Actually run the resampling.
@@ -149,6 +157,8 @@ class Resampler:
 
                 return
 
+            self.first_event_stamp = self.next_input_event[self.stamp_field]
+
             # Determine the starting output stamp to use as a base by truncating the first input
             # stamp to seconds:
             self.prev_out_stamp = self.next_input_event[stamp_field].replace(microsecond=0)
@@ -161,6 +171,8 @@ class Resampler:
         finally:
             self.in_data.close()
             self.out_data.close()
+
+            print()  # make sure we go to a new output line
 
     def set_sensor_only_fields(self):
         """Remove all but sensor fields from the fields dictionary."""
@@ -200,6 +212,8 @@ class Resampler:
 
             # Save this input event as last seen:
             self.last_seen_input_event = dict(self.next_input_event)
+            self.num_input_events_processed += 1
+            self.num_events_since_last_status += 1
 
             self.get_next_input_event()
 
@@ -212,6 +226,9 @@ class Resampler:
 
         # Prepare for the next interval:
         self.prev_out_stamp = self.next_out_stamp
+
+        # Print status if needed:
+        self.print_status(self.prev_out_stamp)
 
     def reset_for_interval(self):
         """Reset variables tracking events seen in an interval."""
@@ -295,6 +312,23 @@ class Resampler:
         }
 
         self.out_data.write_row_dict(event_dict)
+
+    def print_status(self, current_interval_end: datetime):
+        """Print a status message if we've processed a certain number of events."""
+
+        # Only update if we've reached the next threshold:
+        if self.num_events_since_last_status > self.status_num_events_interval:
+            first_stamp_str = self.first_event_stamp.strftime("%Y-%m-%d %H:%M:%S") \
+                if self.first_event_stamp is not None else "?"
+            current_stamp_str = current_interval_end.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Print status over previous status:
+            print(
+                f"Processed {self.num_input_events_processed} events ({first_stamp_str} to {current_stamp_str})              ",
+                end='\r'
+            )
+
+            self.num_events_since_last_status = 0
 
 
 if __name__ == '__main__':
