@@ -114,6 +114,7 @@ class Resampler:
 
         # The last-seen input event:
         self.last_seen_input_event = None  # type: Optional[Dict[str, Union[float, str, datetime, None]]]
+        # TODO: Make sure this is cleared if we 'jump' in time and reset
 
         # Information about input events seen in a sample interval:
         self.num_events_in_interval = 0
@@ -195,6 +196,9 @@ class Resampler:
                 if self.next_input_event[label_name] is not None:
                     self.interval_labels[label_name].append(self.next_input_event[label_name])
 
+            # Save this input event as last seen:
+            self.last_seen_input_event = dict(self.next_input_event)
+
             self.get_next_input_event()
 
         # TODO: Add check/break out of loop here
@@ -226,8 +230,12 @@ class Resampler:
             self.write_out_event(self.next_out_stamp, sensor_vals_to_write, label_vals_to_write)
         else:
             # We didn't have any events, so use the last one we saw, if any:
-            print(self.next_out_stamp)
-            raise NotImplementedError()  # TODO: Actually implement this check and check for no events seen at all yet :)
+            if self.last_seen_input_event is not None:
+                # We have a recently-seen event, so just use that:
+                self.out_data.write_row_dict(self.last_seen_input_event)
+            else:
+                # We don't have any events to write, so just skip this time
+                pass
 
     def get_sensor_values_for_out_event(self) -> Dict[str, Union[float, str, None]]:
         """
