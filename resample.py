@@ -254,8 +254,11 @@ class Resampler:
         else:
             # We didn't have any events, so use the last one we saw, if any:
             if self.last_seen_input_event is not None:
-                # We have a recently-seen event, so just use that:
-                self.out_data.write_row_dict(self.last_seen_input_event)
+                # We have a recently-seen event, so just use that, but update the stamp:
+                repeated_last_seen_event = dict(self.last_seen_input_event)
+                repeated_last_seen_event[self.stamp_field] = self.next_out_stamp
+
+                self.out_data.write_row_dict(repeated_last_seen_event)
             else:
                 # We don't have any events to write, so just skip this time
                 pass
