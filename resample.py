@@ -15,8 +15,8 @@ from mobiledata import MobileData
 
 # Configuration to exclude non-sensor fields from sampling (only last label in each interval is
 # output for resampled data):
-stamp_field = 'stamp'  # name of the timestamp field in the CSV data
-label_fields = ['user_activity_label']  # name(s) of non-sensor labels in the CSV data
+default_stamp_field = 'stamp'  # name of the timestamp field in the CSV data
+default_label_fields = ['user_activity_label']  # name(s) of non-sensor labels in the CSV data
 
 status_num_events_interval = 1000  # number of input events between status updates
 
@@ -103,13 +103,13 @@ class Resampler:
         self.all_fields = None  # type: Optional[Dict[str, str]]
 
         # Stamp field name:
-        self.stamp_field = stamp_field
+        self.stamp_field = default_stamp_field
 
         # Only sensor fields:
         self.sensor_fields = None  # type: Optional[Dict[str, str]]
 
         # List of label fields:
-        self.label_fields = label_fields
+        self.label_fields = default_label_fields
 
         # Determine the output sample interval in seconds:
         self.sample_interval = timedelta(seconds=1.0 / sample_rate)
@@ -187,9 +187,9 @@ class Resampler:
 
         self.sensor_fields = dict(self.all_fields)
 
-        del self.sensor_fields[stamp_field]
+        del self.sensor_fields[self.stamp_field]
 
-        for label_field in label_fields:
+        for label_field in self.label_fields:
             del self.sensor_fields[label_field]
 
     def get_next_input_event(self):
@@ -216,7 +216,7 @@ class Resampler:
                 if self.next_input_event[sensor] is not None:
                     self.interval_sensor_values[sensor].append(self.next_input_event[sensor])
 
-            for label_name in label_fields:
+            for label_name in self.label_fields:
                 if self.next_input_event[label_name] is not None:
                     self.interval_labels[label_name].append(self.next_input_event[label_name])
 
@@ -262,7 +262,7 @@ class Resampler:
 
         self.num_events_in_interval = 0
         self.interval_sensor_values = {sensor: [] for sensor in self.sensor_fields.keys()}
-        self.interval_labels = {label_name: [] for label_name in label_fields}
+        self.interval_labels = {label_name: [] for label_name in self.label_fields}
 
     def write_event_for_interval(self):
         """
@@ -350,7 +350,7 @@ class Resampler:
         """
 
         # Make the start of the next interval be the start of the second of the next event:
-        self.prev_out_stamp = self.next_input_event[stamp_field].replace(microsecond=0)
+        self.prev_out_stamp = self.next_input_event[self.stamp_field].replace(microsecond=0)
         self.next_out_stamp = None
 
         # Clear any last-seen input event:
