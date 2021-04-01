@@ -358,9 +358,9 @@ class Resampler:
 
         # Only update if we've reached the next threshold:
         if self.num_events_since_last_status > self.status_num_events_interval or force_status:
-            first_stamp_str = self.first_event_stamp.strftime("%Y-%m-%d %H:%M:%S") \
+            first_stamp_str = self.first_event_stamp.strftime("%Y-%m-%d %H:%M:%S.%f") \
                 if self.first_event_stamp is not None else "?"
-            current_stamp_str = current_interval_end.strftime("%Y-%m-%d %H:%M:%S")
+            current_stamp_str = current_interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             # Print status over previous status:
             print(
@@ -375,9 +375,9 @@ class Resampler:
                              next_event_stamp: datetime):
         print("\nInput events jumped to {next_event} while in interval {int_start} to {int_end}"
               .format(
-                next_event=next_event_stamp.strftime('%Y-%m-%d %H:%M:%S'),
-                int_start=interval_start.strftime('%Y-%m-%d %H:%M:%S'),
-                int_end=interval_end.strftime('%Y-%m-%d %H:%M:%S')
+                next_event=next_event_stamp.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                int_start=interval_start.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                int_end=interval_end.strftime('%Y-%m-%d %H:%M:%S.%f')
               )
         )
         print("Resetting sample tracking to start at that new event")
