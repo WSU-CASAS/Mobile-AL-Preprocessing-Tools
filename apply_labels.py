@@ -5,6 +5,22 @@ preceeding the labels using certain rules.
 import os
 from argparse import ArgumentParser
 
+
+class LabelApplier:
+    """
+    AKA "The Label Apply-inator" :)
+
+    Read in the input file and look for label instances. Apply those labels to windows of events
+    from the given window_start to window_end times before the label instance, and write to output
+    file. If filter_instances is set, the output file is limited to only events in labeled windows.
+
+    Notes
+    -----
+    TODO: Notes here about the logic of applying labels and the queue, as well as jumping backwards
+    in time
+    """
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(
         description="Script to apply labels to windows of data before the label instance."
