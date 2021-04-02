@@ -4,9 +4,13 @@ preceeding the labels using certain rules.
 """
 import os
 from argparse import ArgumentParser
+from collections import deque
 from datetime import timedelta
 
 from mobiledata import MobileData
+
+default_stamp_field = 'stamp'
+default_activity_label_field = 'user_activity_label'
 
 
 class LabelApplier:
@@ -70,10 +74,31 @@ class LabelApplier:
         # Whether to filter to only labeled instances:
         self.filter_instances = filter_instances
 
+        # Queue to store incoming events:
+        self.event_queue = deque()
+
+        # Store the field names for stamp and activity label:
+        self.stamp_field = default_stamp_field
+        self.label_field = default_activity_label_field
+
     def run_labels(self):
         """Actually run the label application"""
 
-        pass
+        self.in_data.open()
+        self.out_data.open()
+
+        try:
+            # Get the fields from the input file and set them/write headers in output:
+            fields = self.in_data.fields
+
+            self.out_data.set_fields(fields)
+            self.out_data.write_headers()
+
+            for in_event in self.in_data.rows_dict:
+                print(in_event)
+        finally:
+            self.in_data.close()
+            self.out_data.close()
 
 
 if __name__ == '__main__':
@@ -131,7 +156,7 @@ if __name__ == '__main__':
     if args.filter_instances:
         print("Output will be filtered to only instances")
 
-    label_applier = LabelApplier(args.in_file, output_file, args.window_start, args.window_end,
+    label_applier = LabelApplier(args.input_file, output_file, args.window_start, args.window_end,
                                  args.filter_instances)
 
     label_applier.run_labels()
