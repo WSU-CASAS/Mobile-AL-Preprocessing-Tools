@@ -4,6 +4,9 @@ preceeding the labels using certain rules.
 """
 import os
 from argparse import ArgumentParser
+from datetime import timedelta
+
+from mobiledata import MobileData
 
 
 class LabelApplier:
@@ -16,9 +19,61 @@ class LabelApplier:
 
     Notes
     -----
-    TODO: Notes here about the logic of applying labels and the queue, as well as jumping backwards
-    in time
+    The algorithm will store a queue of input events. As events are seen, they are added to the
+    front of the queue. Events more than `window_start` before the newest event are pulled off the
+    back of the queue and written to the output file.
+
+    When a label instance is found in the incoming events, events that are pulled from th back of
+    the queue (again, `window_start` time before the label) are labeled with that label. This
+    continues until `window_end` time before the label is reached, at which it goes back to no
+    labels being applied to events. (If a new label is found while still using the old one, then
+    we switch to the new label and restart the window time.
+
+    If the events jump backwards in time, then we flush the rest of the queue to the output (with
+    labels as needed) and then restart the queue at the new time. (We do not specifically handle
+    forward jumps as this is handled by the normal queue windows.) Also, at the end of the file, we
+    flush out the remaining events in the queue to make sure we write everything needed.
+
+    When using the filtering, we simply don't write out events that aren't labeled.
     """
+
+    def __init__(self, in_file: str, out_file: str, window_start_s: float, window_end_s: float,
+                 filter_instances: bool = False):
+        """
+        Set up the LabelApplier
+
+        Parameters
+        ----------
+        in_file : str
+            Name of the input file to read events from
+        out_file : str
+            Name of the output file to write events to
+        window_start_s : float
+            Seconds before a label to start window of events that get that label
+        window_end_s : float
+            Seconds before a label to end window of events that get that label
+        filter_instances : bool, default False
+            If True, only write labeled events to the output file
+        """
+
+        self.in_file = in_file
+        self.out_file = out_file
+
+        # Set up the input/output file objects:
+        self.in_data = MobileData(in_file, 'r')
+        self.out_data = MobileData(out_file, 'w')
+
+        # Set window start/end deltas:
+        self.window_start = timedelta(seconds=window_start_s)
+        self.window_end = timedelta(seconds=window_end_s)
+
+        # Whether to filter to only labeled instances:
+        self.filter_instances = filter_instances
+
+    def run_labels(self):
+        """Actually run the label application"""
+
+        pass
 
 
 if __name__ == '__main__':
@@ -75,3 +130,8 @@ if __name__ == '__main__':
 
     if args.filter_instances:
         print("Output will be filtered to only instances")
+
+    label_applier = LabelApplier(args.in_file, output_file, args.window_start, args.window_end,
+                                 args.filter_instances)
+
+    label_applier.run_labels()
