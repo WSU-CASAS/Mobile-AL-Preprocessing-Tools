@@ -41,6 +41,19 @@ if __name__ == '__main__':
 
         output_file = f'{filename}{new_extension}'
 
+    # Verify the window start/end times are sensible:
+    if args.window_start < 0:
+        msg = f"Window start of {args.window_start} is invalid - must be non-negative"
+        raise ValueError(msg)
+
+    if args.window_end < 0:
+        msg = f"Window end of {args.window_end} is invalid - must be non-negative"
+        raise ValueError(msg)
+
+    if args.window_start < args.window_end:
+        msg = "Window start cannot be less than window end"
+        raise ValueError(msg)
+
     print(f"Applying labels to windows of {args.window_start}-{args.window_end}s before labels")
     print(f"Reading file {args.input_file} and writing to {output_file}")
 
