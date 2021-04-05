@@ -4,7 +4,7 @@ preceeding the labels using certain rules.
 """
 import os
 from argparse import ArgumentParser
-from collections import deque
+from collections import deque, namedtuple
 from datetime import timedelta, datetime
 from typing import Optional
 
@@ -12,6 +12,10 @@ from mobiledata import MobileData
 
 default_stamp_field = 'stamp'
 default_activity_label_field = 'user_activity_label'
+
+
+# Represents a label window - a label and the start/end windows we want to apply it to:
+LabelWindow = namedtuple('LabelWindow', ['label', 'window_start', 'window_end'])
 
 
 class LabelApplier:
@@ -28,11 +32,11 @@ class LabelApplier:
     front of the queue. Events more than `window_start` before the newest event are pulled off the
     back of the queue and written to the output file.
 
-    When a label instance is found in the incoming events, events that are pulled from th back of
+    When a label instance is found in the incoming events, events that are pulled from the back of
     the queue (again, `window_start` time before the label) are labeled with that label. This
     continues until `window_end` time before the label is reached, at which it goes back to no
     labels being applied to events. (If a new label is found while still using the old one, then
-    we switch to the new label and restart the window time.
+    we continue with the old label window, only switching to the new one when that is done.)
 
     If the events jump backwards in time, then we flush the rest of the queue to the output (with
     labels as needed) and then restart the queue at the new time. (We do not specifically handle
@@ -41,24 +45,6 @@ class LabelApplier:
 
     When using the filtering, we simply don't write out events that aren't labeled.
     """
-
-    @property
-    def current_window_start(self) -> Optional[datetime]:
-        """The start of the current label window (if any)"""
-
-        if self.current_label_stamp is None:
-            return None
-
-        return self.current_label_stamp - self.window_start
-
-    @property
-    def current_window_end(self) -> Optional[datetime]:
-        """The end of the current label window (if any)"""
-
-        if self.current_label_stamp is None:
-            return None
-
-        return self.current_label_stamp - self.window_end
 
     def __init__(self, in_file: str, out_file: str, window_start_s: float, window_end_s: float,
                  filter_instances: bool = False):
@@ -100,9 +86,11 @@ class LabelApplier:
         self.stamp_field = default_stamp_field
         self.label_field = default_activity_label_field
 
-        # The current label to label with and when it occurs:
-        self.current_label = None  # type: Optional[str]
-        self.current_label_stamp = None  # type: Optional[datetime]
+        # Store a queue of labels and their windows:
+        self.label_windows_queue = deque()  # hold a list of LabelWindow objects
+
+        # The current LabelWindow to use:
+        self.current_window = None  # type: Optional[LabelWindow]
 
     def run_labels(self):
         """Actually run the label application"""
@@ -125,8 +113,7 @@ class LabelApplier:
                 event_label = in_event[self.label_field]
 
                 if event_label is not None:
-                    self.current_label = event_label
-                    self.current_label_stamp = in_event[self.stamp_field]
+                    self.add_label_window(event_label, in_event[self.stamp_field])
 
                 # Process any events from the end of the queue that are now beyond the window_start
                 # time:
@@ -137,10 +124,17 @@ class LabelApplier:
             self.in_data.close()
             self.out_data.close()
 
+    def add_label_window(self, label: str, label_stamp: datetime):
+        label_window_start = label_stamp - self.window_start
+        label_window_end = label_stamp - self.window_end
+
+        self.label_windows_queue.append(LabelWindow(label, label_window_start, label_window_end))
+
     def write_events_from_queue(self, end_stamp: Optional[datetime]):
         """
         Write files from the back of the queue. Will write all files unless end_stamp is set, at
-        which point it will only write until end_stamp is reached.
+        which point it will only write until end_stamp is reached. For each event, we check if we
+        should pull a new LabelWindow off the queue that now applies to that stamp.
         """
 
         while len(self.event_queue) > 0 \
@@ -148,13 +142,46 @@ class LabelApplier:
             # Get the event off the back of the queue:
             event = self.event_queue.popleft()
 
+            # Update the current label window if needed:
+            self.update_current_window(event[self.stamp_field])
+
             # Apply any existing label to the event if within the current label's window:
-            if self.current_window_start is not None and self.current_window_end is not None:
-                if self.current_window_start <= event[self.stamp_field] <= self.current_window_end:
-                    event[self.label_field] = self.current_label
+            if self.current_window is not None \
+                and self.current_window.window_start \
+                    <= event[self.stamp_field] \
+                    <= self.current_window.window_end:
+                event[self.label_field] = self.current_window.label
 
             # Now write out the label:
             self.out_data.write_row_dict(event)
+
+    def update_current_window(self, stamp: datetime):
+        """
+        Update the self.current_label_window to whatever window (if any) applies to the given
+        timestamp. This means pulling the next window off the queue only when the current window is
+        done. If we're not in a window currently, grab the next window from the the queue to have it
+        ready for future events.
+        """
+
+        # Don't do anything if we're still inside the current window:
+        if self.current_window is not None \
+                and self.current_window.window_start <= stamp <= self.current_window.window_end:
+            return
+
+        # Load the next window:
+        while len(self.label_windows_queue) > 0:
+            # If the event stamp is before the next window's end, then grab that window and use it:
+            if stamp <= self.label_windows_queue[0].window_end:
+                self.current_window = self.label_windows_queue.popleft()
+
+                # We found a window, so don't get any more:
+                return
+
+            # If we are past the end of the next window, then we need to pop it to get rid of it:
+            if stamp > self.label_windows_queue[0].window_end:
+                self.label_windows_queue.popleft()
+
+            # Keep looking for the next window, if any
 
 
 if __name__ == '__main__':
