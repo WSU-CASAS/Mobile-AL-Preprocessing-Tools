@@ -120,6 +120,9 @@ class LabelApplier:
                 self.write_events_from_queue(
                     end_stamp=in_event[self.stamp_field] - self.window_start
                 )
+
+            # Process out the rest of the events held in the queue:
+            self.write_events_from_queue()
         finally:
             self.in_data.close()
             self.out_data.close()
@@ -130,7 +133,7 @@ class LabelApplier:
 
         self.label_windows_queue.append(LabelWindow(label, label_window_start, label_window_end))
 
-    def write_events_from_queue(self, end_stamp: Optional[datetime]):
+    def write_events_from_queue(self, end_stamp: Optional[datetime] = None):
         """
         Write files from the back of the queue. Will write all files unless end_stamp is set, at
         which point it will only write until end_stamp is reached. For each event, we check if we
