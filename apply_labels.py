@@ -162,8 +162,11 @@ class LabelApplier:
                     <= self.current_window.window_end:
                 event[self.label_field] = self.current_window.label
 
-            # Now write out the label:
-            self.out_data.write_row_dict(event)
+            # Now write out the event.
+            # If we aren't filtering instances, write out all events.
+            # If we are, only write events whose label is not None.
+            if not self.filter_instances or event[self.label_field] is not None:
+                self.out_data.write_row_dict(event)
 
     def update_current_window(self, stamp: datetime):
         """
