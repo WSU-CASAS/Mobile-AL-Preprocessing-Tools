@@ -106,6 +106,13 @@ class LabelApplier:
             self.out_data.write_headers()
 
             for in_event in self.in_data.rows_dict:
+                # If the event is older than the last seen event, flush the queue and restart
+                # tracking windows:
+                if len(self.event_queue) > 0 \
+                        and in_event[self.stamp_field] < self.event_queue[-1][self.stamp_field]:
+                    self.write_events_from_queue()  # flush the queue
+                    self.reset_windows()  # reset the windows to start with new queues
+
                 # Add the event to the front of the queue:
                 self.event_queue.append(in_event)
 
@@ -185,6 +192,13 @@ class LabelApplier:
                 self.label_windows_queue.popleft()
 
             # Keep looking for the next window, if any
+
+    def reset_windows(self):
+        """Reset the window tracking, usually because we've jumped back in time in a file."""
+
+        self.event_queue.clear()
+        self.label_windows_queue.clear()
+        self.current_window = None
 
 
 if __name__ == '__main__':
