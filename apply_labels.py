@@ -161,6 +161,11 @@ class LabelApplier:
                     <= event[self.stamp_field] \
                     <= self.current_window.window_end:
                 event[self.label_field] = self.current_window.label
+            else:
+                # Clear the label if we aren't in a window. This is important if the originally-
+                # labeled event does not get the label in the output - namely, if the window_end is
+                # greater than zero.
+                event[self.label_field] = None
 
             # Now write out the event.
             # If we aren't filtering instances, write out all events.
