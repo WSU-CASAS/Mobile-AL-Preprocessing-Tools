@@ -55,8 +55,39 @@ option. (See all options available with `python resample.py --help`.)
 
 ### Activity Labeling
 
-TODO: Add info about activity labeling script
+The `apply_labels.py` script can be used to take individual label instances in the input file and
+apply them to time-based windows of events for output. This is useful if you have single-event
+labels at the "instant" when the user provided them, and want to apply them to a range of events
+that should be considered part of that activity.
 
-### Instance Filtering
+The script looks for labels in the input data. When it finds one, it applies that label to all
+events from `window_start` to `window_end` seconds before the labeled event's stamp in the output.
+So, for example, if you see `Cook` at `12:00:00`, the default settings will apply the `Cook` label
+to all events from `11:55:00` to `12:00:00` in the output.
 
-TODO: Add info about script which filters data to only labeled instances
+If a new label is encountered while in the midst of a previous label's window, the script first
+finishes the previous label's window before switching to the new label (if any of its window remains
+at that point).
+
+If the events in the input file jump backwards in time, the events before the jump will be flushed
+out before the processing restarts with the new event.
+
+Basic usage is as follows:
+```
+python apply_labels.py input_file.csv
+```
+
+This will use the following:
+- Input file is `input_file.csv`
+- Output file name will have `labeled` inserted before the `.csv` extension: 
+  `input_file.labeled.csv`
+- Each label in the input will be applied to a window from 5 minutes (`window_start`) to 0 seconds 
+  (`window_end`) before the label's timestamp.
+  
+You can modify the `window_start` and `window_end` values using the `-ws` and `-we` parameters,
+respectively. You can also change the output file name using `-o`.
+
+Finally, the script provides the option to filter the output to only include labeled data with the
+`-f` option. If this option is used, only events that will have a label (i.e. fall into a label's
+window) will be written to the output. This also changes the default output file name to use
+`instances` instead of `labeled`.
