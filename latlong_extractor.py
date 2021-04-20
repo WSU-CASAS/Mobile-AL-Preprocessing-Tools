@@ -33,7 +33,7 @@ def extract_from_files(in_filenames: List[str], out_filename: str):
                     count += 1
 
                     if count % count_status_interval == 0:
-                        print(f"Processing line {count}")
+                        print(f"Processing line {count}       ", end='\r')
 
                     # Verify the values aren't None:
                     if event['latitude'] is None or event['longitude'] is None:
@@ -46,6 +46,8 @@ def extract_from_files(in_filenames: List[str], out_filename: str):
                         out_file.write(f"{event['latitude']} {event['longitude']}\n")
 
                         last_coords = (event['latitude'], event['longitude'])
+
+            print()  # go to a new line at end of status prints
 
 
 if __name__ == '__main__':
