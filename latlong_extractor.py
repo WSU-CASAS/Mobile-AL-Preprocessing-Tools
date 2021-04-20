@@ -26,6 +26,10 @@ def extract_from_files(in_filenames: List[str], out_filename: str):
 
             with MobileData(in_filename, 'r') as in_data:
                 for event in in_data.rows_dict:
+                    # Verify the values aren't None:
+                    if event['latitude'] is None or event['longitude'] is None:
+                        continue
+
                     # Only write the event's lat/long if they don't match the last ones written:
                     if last_coords is None or event['latitude'] != last_coords[0] \
                             or event['longitude'] != last_coords[1]:
