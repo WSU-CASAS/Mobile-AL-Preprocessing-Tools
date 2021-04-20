@@ -16,6 +16,8 @@ from typing import List, Tuple, Optional
 
 from mobiledata import MobileData
 
+count_status_interval = 10000
+
 
 def extract_from_files(in_filenames: List[str], out_filename: str):
     last_coords = None  # type: Optional[Tuple[float, float]]
@@ -24,8 +26,15 @@ def extract_from_files(in_filenames: List[str], out_filename: str):
         for in_filename in in_filenames:
             print(f"Processing {in_filename}")
 
+            count = 0
+
             with MobileData(in_filename, 'r') as in_data:
                 for event in in_data.rows_dict:
+                    count += 1
+
+                    if count % count_status_interval == 0:
+                        print(f"Processing line {count}")
+
                     # Verify the values aren't None:
                     if event['latitude'] is None or event['longitude'] is None:
                         continue
