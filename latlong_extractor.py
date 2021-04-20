@@ -34,6 +34,7 @@ def extract_from_files(in_filenames: List[str], out_filename: str):
 
                         last_coords = (event['latitude'], event['longitude'])
 
+
 if __name__ == '__main__':
     parser = ArgumentParser(description="Extract latitude and longitude pairs from CSV data files.")
 
@@ -43,10 +44,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    output_file = args.output_file
-    if output_file is None:
-        output_file = 'latlong'
+    print(f"Using output file name {args.output_file}")
 
-        print(f"Using default output file name {output_file}")
-
-    extract_from_files(args.input_files, output_file)
+    extract_from_files(args.input_files, args.output_file)
